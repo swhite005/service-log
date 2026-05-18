@@ -218,14 +218,10 @@ body{font-family:var(--font);color:var(--lbl);-webkit-font-smoothing:antialiased
         <div class="sec"><div class="sh">Invoice / Receipt <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:12px">(optional)</span></div>
           <div class="grp">
             <div class="cell col" style="gap:12px">
-              <input type="file" class="fi" id="fiCam" accept="image/*" capture="environment" multiple onchange="onFiles(this,'log')"/>
               <input type="file" class="fi" id="fiFile" accept="image/*,application/pdf" multiple onchange="onFiles(this,'log')"/>
               <div class="atiles">
-                <button class="atile" onclick="document.getElementById('fiCam').click()">
-                  <span class="ai">&#128247;</span><span class="al">Camera</span><span class="as">Take photo</span>
-                </button>
                 <button class="atile" onclick="document.getElementById('fiFile').click()">
-                  <span class="ai">&#128206;</span><span class="al">Files</span><span class="as">Photo or PDF</span>
+                  <span class="ai">&#128206;</span><span class="al">Attach Invoice</span><span class="as">Photo or PDF</span>
                 </button>
               </div>
               <div class="thumbs" id="logThumbs"></div>
@@ -325,11 +321,9 @@ body{font-family:var(--font);color:var(--lbl);-webkit-font-smoothing:antialiased
           <div class="grp">
             <div class="cell col" style="gap:12px">
               <div id="ePhLink" style="display:none"><a id="ePhA" href="#" target="_blank" style="font-size:15px;color:var(--ios-blue);text-decoration:none">&#128193; View existing photos in Drive</a></div>
-              <input type="file" class="fi" id="eCam" accept="image/*" capture="environment" multiple onchange="onFiles(this,'edit')"/>
               <input type="file" class="fi" id="eFile" accept="image/*,application/pdf" multiple onchange="onFiles(this,'edit')"/>
               <div class="atiles">
-                <button class="atile" onclick="document.getElementById('eCam').click()"><span class="ai">&#128247;</span><span class="al">Camera</span></button>
-                <button class="atile" onclick="document.getElementById('eFile').click()"><span class="ai">&#128206;</span><span class="al">Files</span></button>
+                <button class="atile" onclick="document.getElementById('eFile').click()"><span class="ai">&#128206;</span><span class="al">Attach Invoice</span><span class="as">Photo or PDF</span></button>
               </div>
               <div class="thumbs" id="editThumbs"></div>
               <div class="uprog" id="editProg"><div class="ptr"><div class="pf" id="editPf"></div></div><span id="editPl">Uploading...</span></div>

@@ -167,6 +167,27 @@ body{font-family:var(--font);color:var(--lbl);-webkit-font-smoothing:antialiased
 .toast.ok{background:rgba(52,199,89,.92);}
 .toast.err{background:rgba(255,59,48,.92);}
 .toast.warn{background:rgba(255,149,0,.92);}
+
+/* Maintenance due */
+.mcard{background:var(--cell);border-radius:10px;overflow:hidden;margin:0 16px 12px;}
+.mcard-hdr{background:var(--accent);color:#fff;padding:10px 14px;font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:space-between;}
+.mbadge{font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;margin-left:8px;}
+.mbadge.overdue{background:#FF3B30;color:#fff;}
+.mbadge.soon{background:#FF9500;color:#fff;}
+.mbadge.ok{background:#34C759;color:#fff;}
+.mrow{display:flex;align-items:center;gap:10px;padding:10px 14px;position:relative;font-size:13px;}
+.mrow+.mrow::before{content:"";position:absolute;top:0;left:14px;right:0;height:.5px;background:var(--sep);}
+.mdot{width:9px;height:9px;border-radius:50%;flex-shrink:0;}
+.mdot.overdue{background:#FF3B30;}
+.mdot.soon{background:#FF9500;}
+.mdot.ok{background:#34C759;}
+.mdot.unknown{background:var(--ios-gray3);}
+.mname{flex:1;font-weight:600;color:var(--lbl);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.mdetail{font-size:12px;color:var(--lbl2);text-align:right;flex-shrink:0;}
+.mdetail.overdue{color:#FF3B30;font-weight:700;}
+.mdetail.soon{color:#FF9500;font-weight:700;}
+.mwrap-hdr{padding:8px 16px 4px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--lbl2);}
+
 .odo{display:inline-flex;padding:2px 8px;background:var(--ios-gray5);border-radius:6px;font-size:13px;color:var(--lbl2);font-weight:500;}
 .svccount{font-size:14px;font-weight:500;color:var(--lbl2);}
 </style>
@@ -246,6 +267,15 @@ body{font-family:var(--font);color:var(--lbl);-webkit-font-smoothing:antialiased
         </div>
       </div>
       <div class="cards" id="sumCards"><div class="card" style="display:flex;align-items:center;justify-content:center;min-width:120px"><div class="spin"></div></div></div>
+      <div id="maintRibMob" style="display:none;padding:0 16px 10px">
+        <div style="background:var(--accent);border-radius:10px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px">
+          <div>
+            <div id="maintRibTitleMob" style="font-size:14px;font-weight:700;color:#fff"></div>
+            <div id="maintRibSubMob" style="font-size:11px;color:rgba(255,255,255,0.6);margin-top:1px"></div>
+          </div>
+          <button onclick="openMaintPage()" style="background:var(--gold);color:var(--accent);border:none;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer;flex-shrink:0;touch-action:manipulation">View ›</button>
+        </div>
+      </div>
       <div class="sbar-w">
         <div class="sbar">
           <span style="font-size:15px;color:var(--ios-gray)">&#128269;</span>
@@ -337,6 +367,23 @@ body{font-family:var(--font);color:var(--lbl);-webkit-font-smoothing:antialiased
       </div>
     </div>
 
+
+    <!-- MAINTENANCE SCREEN -->
+    <div class="scr" id="S-maint">
+      <div class="nav nav-top">
+        <div class="nav-row">
+          <button class="nbtn" onclick="switchTab('search')"><span style="font-size:22px">&#8249;</span>&nbsp;Records</button>
+          <div class="nav-title">Maintenance</div>
+          <div class="nsp"></div>
+        </div>
+      </div>
+      <div class="scroll" id="maintScroll">
+        <div id="maintPageMob" style="padding:16px 16px 24px">
+          <div style="text-align:center;padding:40px 20px;color:var(--lbl2)">Loading...</div>
+        </div>
+      </div>
+    </div>
+
   </div><!-- /stack -->
 
   <div class="tabbar">
@@ -398,7 +445,7 @@ function switchTab(t) {
     document.getElementById("tab-"+x).classList.toggle("on", x===t);
   });
   ["S-detail","S-edit"].forEach(id => document.getElementById(id).classList.remove("on","back"));
-  if (t==="search" && !recs.length) loadRecs();
+  if (t==="search") { if (!recs.length) loadRecs(); loadMaintDue(); }
 }
 
 function push(id) {
@@ -417,7 +464,7 @@ async function loadVehicles() {
   const res = await api("getVehicles");
   VEHICLES = res.success ? res.vehicles : ["2004 Ford F-150","2011 Ford Flex"];
   buildSeg("vSeg","log"); buildSeg("evSeg","edit");
-  buildPills(); loadSummary();
+  buildPills(); loadSummary(); loadMaintRibbon();
 }
 
 function buildSeg(elId, ctx) {
@@ -795,6 +842,129 @@ async function confirmDel() {
 function busy(id,on,lbl){const b=document.getElementById(id);if(!b)return;b.disabled=on;b.textContent=lbl;}
 let tt;
 function toast(msg,type="ok"){const t=document.getElementById("toast");t.textContent=msg;t.className=`toast on ${type}`;clearTimeout(tt);tt=setTimeout(()=>t.className="toast",3200);}
+
+// ── Maintenance Due ───────────────────────────────────────────
+let _mobMaintCache = null;
+
+async function loadMaintRibbon() {
+  try {
+    const res = await api("getAllMaintenanceDue", {});
+    _mobMaintCache = res.success ? res.results : null;
+    renderMaintRibbon(_mobMaintCache);
+  } catch(e) { _mobMaintCache = null; }
+}
+
+function renderMaintRibbon(results) {
+  const rib = document.getElementById("maintRibMob");
+  if (!rib || !results) { if(rib) rib.style.display="none"; return; }
+  const vehicles = Object.keys(results);
+  let totalOverdue=0, totalSoon=0;
+  vehicles.forEach(v => {
+    if (!results[v].items) return;
+    totalOverdue += results[v].items.filter(i=>i.status==="overdue").length;
+    totalSoon    += results[v].items.filter(i=>i.status==="soon").length;
+  });
+  const hasSchedule = vehicles.some(v => results[v].items && results[v].items.length > 0);
+  if (!hasSchedule) { rib.style.display="none"; return; }
+  rib.style.display="block";
+  const titleEl = document.getElementById("maintRibTitleMob");
+  const subEl   = document.getElementById("maintRibSubMob");
+  if (totalOverdue > 0) {
+    titleEl.innerHTML = `<span style="color:#FF6B6B">&#9888;&#65039; ${totalOverdue} service${totalOverdue!==1?"s":""} overdue</span>`;
+    subEl.textContent = totalSoon>0 ? `+ ${totalSoon} due soon` : "Tap View for details";
+  } else if (totalSoon > 0) {
+    titleEl.innerHTML = `<span style="color:#FFD60A">&#128276; ${totalSoon} service${totalSoon!==1?"s":""} due soon</span>`;
+    subEl.textContent = "Tap View for details";
+  } else {
+    titleEl.innerHTML = `<span style="color:#32D74B">&#10003; All maintenance up to date</span>`;
+    subEl.textContent = "Tap View for full schedule";
+  }
+}
+
+async function loadMaintPageMob() {
+  const el = document.getElementById("maintPageMob");
+  if (!el) return;
+  if (_mobMaintCache) { renderMaintPageMob(_mobMaintCache); return; }
+  el.innerHTML = '<div style="text-align:center;padding:40px"><div class="spin" style="margin:0 auto"></div></div>';
+  try {
+    const res = await api("getAllMaintenanceDue", {});
+    _mobMaintCache = res.success ? res.results : null;
+    renderMaintPageMob(_mobMaintCache);
+  } catch(e) { el.innerHTML=`<div style="text-align:center;padding:40px;color:var(--lbl2)">Failed to load</div>`; }
+}
+
+function renderMaintPageMob(results) {
+  const el = document.getElementById("maintPageMob");
+  if (!el) return;
+  el.innerHTML = "";
+  if (!results) { el.innerHTML='<div style="text-align:center;padding:40px;color:var(--lbl2)">No data</div>'; return; }
+  const vehicles = Object.keys(results);
+  const hasAny = vehicles.some(v => results[v].items && results[v].items.length > 0);
+  if (!hasAny) {
+    el.innerHTML='<div style="text-align:center;padding:40px;color:var(--lbl2)">No maintenance schedules set up yet.</div>';
+    return;
+  }
+  vehicles.forEach(vehicle => {
+    const data = results[vehicle];
+    if (!data.success || !data.items || !data.items.length) return;
+    const vhdr = document.createElement("div");
+    vhdr.style.cssText = "font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--lbl2);padding:14px 0 6px";
+    const odoStr = data.currentOdo ? ` · ${Number(data.currentOdo).toLocaleString()} mi` : "";
+    vhdr.textContent = vehicle + odoStr;
+    el.appendChild(vhdr);
+    const groups = [
+      {key:"overdue",label:"Overdue",    color:"#FF3B30"},
+      {key:"soon",   label:"Due Soon",   color:"#FF9500"},
+      {key:"ok",     label:"Up to Date", color:"#34C759"},
+      {key:"unknown",label:"No History", color:"var(--ios-gray3)"}
+    ];
+    groups.forEach(g => {
+      const items = data.items.filter(i=>i.status===g.key);
+      if (!items.length) return;
+      const sl = document.createElement("div");
+      sl.style.cssText="display:flex;align-items:center;gap:8px;padding:6px 0 4px;font-size:12px;font-weight:700;color:var(--lbl2)";
+      sl.innerHTML=`<span>${g.label}</span><span style="background:${g.color};color:#fff;border-radius:8px;padding:1px 8px;font-size:11px">${items.length}</span>`;
+      el.appendChild(sl);
+      const card = document.createElement("div");
+      card.className="grp"; card.style.marginBottom="10px";
+      items.forEach((item,idx) => {
+        const detail = mDetail(item);
+        const lastStr = item.lastDate
+          ? `Last: ${item.lastDate}${item.lastSource==="manual"?" (manual)":""}${item.lastOdo?" · "+Number(item.lastOdo).toLocaleString()+" mi":""}`
+          : item.manualLastDate ? `Last: ${item.manualLastDate} (manual)` : "";
+        const row = document.createElement("div");
+        row.className="cell"; if(idx>0) row.style.borderTop=".5px solid var(--sep)";
+        row.style.gap="10px";
+        row.innerHTML=`
+          <div class="mdot ${item.status}" style="flex-shrink:0"></div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:14px;font-weight:600;color:var(--lbl)">${esc(item.serviceName)}</div>
+            ${lastStr?`<div style="font-size:11px;color:var(--lbl2);margin-top:2px">${esc(lastStr)}</div>`:""}
+          </div>
+          <div class="mdetail ${item.status}" style="font-size:12px;font-weight:${item.status==="overdue"||item.status==="soon"?"700":"400"};color:${item.status==="overdue"?"#FF3B30":item.status==="soon"?"#FF9500":"var(--lbl2)"};text-align:right;flex-shrink:0">${detail}</div>`;
+        card.appendChild(row);
+      });
+      el.appendChild(card);
+    });
+  });
+}
+
+function mDetail(item) {
+  if (item.status === "unknown") return "No history";
+  const parts = [];
+  if (item.milesUntilDue !== null && !isNaN(item.milesUntilDue)) {
+    parts.push(item.milesUntilDue <= 0
+      ? `${Math.abs(Math.round(item.milesUntilDue)).toLocaleString()} mi over`
+      : `${Math.round(item.milesUntilDue).toLocaleString()} mi`);
+  }
+  if (item.daysUntilDue !== null && !isNaN(item.daysUntilDue)) {
+    parts.push(item.daysUntilDue <= 0
+      ? `${Math.abs(item.daysUntilDue)}d over`
+      : item.daysUntilDue <= 60 ? `${item.daysUntilDue}d` : item.dueDate);
+  }
+  return parts.join(" · ") || "Due";
+}
+
 function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
 </script>
 </body>

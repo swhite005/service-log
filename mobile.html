@@ -458,8 +458,7 @@ const sel = { log: new Set(), edit: new Set() };
 // ── Init ─────────────────────────────────────────────────────
 window.addEventListener("DOMContentLoaded", () => {
   setToday("sDate");
-  buildChips("log"); buildChips("edit");
-  loadVehicles();
+  loadVehicles(); // chips build after vehicles load and first vehicle auto-selected
 });
 
 function setToday(id) {
@@ -496,11 +495,18 @@ async function loadVehicles() {
   try {
     const res = await api("getVehicles");
     VEHICLES = res.success ? res.vehicles : ["2004 Ford F-150","2011 Ford Flex"];
+    if (!res.success) showToast("Using default vehicles: " + (res.error||""), "warn");
   } catch(e) {
     VEHICLES = ["2004 Ford F-150","2011 Ford Flex"];
+    showToast("API error: " + e.message, "error");
   }
   buildSeg("vSeg","log"); buildSeg("evSeg","edit");
   buildPills(); loadSummary(); loadMaintRibbon();
+  // Auto-load schedule chips for the first vehicle in each context
+  if (VEHICLES.length > 0) {
+    onVehicleChangeMob("log",  VEHICLES[0]);
+    onVehicleChangeMob("edit", VEHICLES[0]);
+  }
 }
 
 function buildSeg(elId, ctx) {
@@ -583,8 +589,12 @@ function buildChips(ctx) {
     });
   } else {
     const ph = document.createElement("div");
-    ph.style.cssText = "font-size:13px;color:var(--lbl2);padding:4px 2px;font-style:italic";
-    ph.textContent = "Select a vehicle above to see scheduled services.";
+    ph.style.cssText = "font-size:13px;color:var(--lbl2);padding:6px 2px;font-style:italic";
+    const segWrap = document.getElementById(ctx==="log"?"vSeg":"evSeg");
+    const hasVehicle = segWrap && segWrap.querySelector(".sb.on");
+    ph.textContent = hasVehicle
+      ? "No maintenance schedule set up for this vehicle. Add one in Settings."
+      : "Loading scheduled services...";
     g.appendChild(ph);
   }
 

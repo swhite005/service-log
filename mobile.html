@@ -82,6 +82,11 @@ body{font-family:var(--font);color:var(--lbl);-webkit-font-smoothing:antialiased
 .sb{flex:1;padding:7px 4px;border-radius:7px;border:none;background:transparent;font-size:13px;font-weight:500;color:var(--lbl);font-family:var(--font);cursor:pointer;-webkit-appearance:none;touch-action:manipulation;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .sb.on{background:var(--cell);box-shadow:0 1px 3px rgba(0,0,0,.15);font-weight:600;}
 /* Chips */
+.chip-sec-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--lbl2);padding:8px 2px 4px;display:flex;align-items:center;gap:8px;width:100%;}
+.chip-sec-lbl::after{content:"";flex:1;height:1px;background:var(--sep);}
+.chip-sec-lbl:first-child{padding-top:0;}
+.chip-sched{border-color:var(--gold)!important;}
+.chip-sched.on{border-color:var(--accent)!important;}
 .chips{display:flex;flex-wrap:wrap;gap:8px;padding:4px 0;}
 .chip{display:inline-flex;align-items:center;gap:4px;padding:7px 14px;border-radius:20px;border:1.5px solid var(--ios-gray4);background:var(--cell);font-size:14px;font-weight:500;color:var(--lbl);cursor:pointer;font-family:var(--font);-webkit-appearance:none;touch-action:manipulation;white-space:nowrap;}
 .chip:active{transform:scale(.96);}
@@ -474,7 +479,7 @@ function buildSeg(elId, ctx) {
     const b = document.createElement("button");
     b.className = "sb" + (i===0?" on":""); b.dataset.v = v;
     b.textContent = v.replace(/^20\d\d\s+/,"");
-    b.onclick = () => { w.querySelectorAll(".sb").forEach(x=>x.classList.remove("on")); b.classList.add("on"); };
+    b.onclick = () => { w.querySelectorAll(".sb").forEach(x=>x.classList.remove("on")); b.classList.add("on"); onVehicleChangeMob(ctx, b.dataset.v); };
     w.appendChild(b);
   });
 }
@@ -524,10 +529,39 @@ async function loadSummary() {
 }
 
 // ── Chips ─────────────────────────────────────────────────────
+function onVehicleChangeMob(ctx, vehicle) {
+  if (!vehicle) { schedChips[ctx]=[]; buildChips(ctx); return; }
+  api("getMaintenanceSchedule",{vehicle})
+    .then(res => { schedChips[ctx]=res.success?res.items.map(i=>i.serviceName):[]; buildChips(ctx); })
+    .catch(() => { schedChips[ctx]=[]; buildChips(ctx); });
+}
+
 function buildChips(ctx) {
   const g = document.getElementById(ctx==="log"?"logChips":"editChips"); if (!g) return;
   g.innerHTML = "";
+  const sched = schedChips[ctx]||[];
+
+  // Section 1: Scheduled Maintenance
+  if (sched.length > 0) {
+    const l1 = document.createElement("div");
+    l1.className = "chip-sec-lbl"; l1.textContent = "Scheduled Maintenance";
+    g.appendChild(l1);
+    sched.forEach(s => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "chip chip-sched"+(sel[ctx].has(s)?" on":"");
+      b.innerHTML = `<span class="ck">&#10003;</span>${esc(s)}`;
+      b.onclick = () => toggleChip(ctx, s, b);
+      g.appendChild(b);
+    });
+  }
+
+  // Section 2: Common Services
+  const l2 = document.createElement("div");
+  l2.className = "chip-sec-lbl"; l2.textContent = sched.length>0?"Common Services":"Services";
+  g.appendChild(l2);
   QS.forEach(s => {
+    if (sched.includes(s)) return; // skip duplicates
     const b = document.createElement("button");
     b.type = "button";
     b.className = "chip"+(sel[ctx].has(s)?" on":"");
@@ -535,6 +569,7 @@ function buildChips(ctx) {
     b.onclick = () => toggleChip(ctx, s, b);
     g.appendChild(b);
   });
+
   updSum(ctx);
 }
 
@@ -564,8 +599,8 @@ function setChips(ctx, str) {
   document.getElementById(ctx==="log"?"logOther":"editOther").value = "";
   if (!str) { buildChips(ctx); updSum(ctx); return; }
   const lines = str.split("\n").map(s=>s.trim()).filter(Boolean);
-  const qs = new Set(QS); const other = [];
-  lines.forEach(l => { if (qs.has(l)) sel[ctx].add(l); else other.push(l); });
+  const allKnown = new Set([...QS,...(schedChips[ctx]||[])]); const other = [];
+  lines.forEach(l => { if (allKnown.has(l)) sel[ctx].add(l); else other.push(l); });
   document.getElementById(ctx==="log"?"logOther":"editOther").value = other.join("\n");
   buildChips(ctx); updSum(ctx);
 }
@@ -573,6 +608,7 @@ function setChips(ctx, str) {
 function resetChips(ctx) {
   sel[ctx].clear();
   document.getElementById(ctx==="log"?"logOther":"editOther").value = "";
+  if (ctx==="log") schedChips.log=[];
   buildChips(ctx); updSum(ctx);
 }
 
@@ -800,7 +836,11 @@ function openEdit() {
   if (r.photoFolderUrl) { document.getElementById("ePhA").href=r.photoFolderUrl; lnk.style.display="block"; }
   else lnk.style.display="none";
   if (VEHICLES.length) setSeg("evSeg",r.vehicle);
-  setChips("edit",r.services||"");
+  if (r.vehicle) {
+    api("getMaintenanceSchedule",{vehicle:r.vehicle})
+      .then(res => { schedChips.edit=res.success?res.items.map(i=>i.serviceName):[]; setChips("edit",r.services||""); })
+      .catch(() => { schedChips.edit=[]; setChips("edit",r.services||""); });
+  } else setChips("edit",r.services||"");
   staged.edit=[]; document.getElementById("editThumbs").innerHTML="";
   document.getElementById("editProg").classList.remove("on");
   push("S-edit");

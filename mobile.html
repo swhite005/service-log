@@ -409,9 +409,13 @@ const API = "https://script.google.com/macros/s/AKfycbwTHZFP3nIsFUk4IgcDC-V-_ci4
 async function api(action, params) {
   const res = await fetch(API, {
     method: "POST",
+    redirect: "follow",
+    headers: { "Content-Type": "text/plain" },
     body: JSON.stringify({ action, ...params })
   });
-  return res.json();
+  const text = await res.text();
+  try { return JSON.parse(text); }
+  catch(e) { return { success: false, error: "Invalid response: " + text.slice(0,100) }; }
 }
 
 // ── Constants ────────────────────────────────────────────────
@@ -466,8 +470,12 @@ function pop(id) {
 
 // ── Vehicles ─────────────────────────────────────────────────
 async function loadVehicles() {
-  const res = await api("getVehicles");
-  VEHICLES = res.success ? res.vehicles : ["2004 Ford F-150","2011 Ford Flex"];
+  try {
+    const res = await api("getVehicles");
+    VEHICLES = res.success ? res.vehicles : ["2004 Ford F-150","2011 Ford Flex"];
+  } catch(e) {
+    VEHICLES = ["2004 Ford F-150","2011 Ford Flex"];
+  }
   buildSeg("vSeg","log"); buildSeg("evSeg","edit");
   buildPills(); loadSummary(); loadMaintRibbon();
 }

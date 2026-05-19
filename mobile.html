@@ -541,11 +541,7 @@ function buildChips(ctx) {
   g.innerHTML = "";
   const sched = schedChips[ctx]||[];
 
-  // Section 1: Scheduled Maintenance
   if (sched.length > 0) {
-    const l1 = document.createElement("div");
-    l1.className = "chip-sec-lbl"; l1.textContent = "Scheduled Maintenance";
-    g.appendChild(l1);
     sched.forEach(s => {
       const b = document.createElement("button");
       b.type = "button";
@@ -554,21 +550,12 @@ function buildChips(ctx) {
       b.onclick = () => toggleChip(ctx, s, b);
       g.appendChild(b);
     });
+  } else {
+    const ph = document.createElement("div");
+    ph.style.cssText = "font-size:13px;color:var(--lbl2);padding:4px 2px;font-style:italic";
+    ph.textContent = "Select a vehicle above to see scheduled services.";
+    g.appendChild(ph);
   }
-
-  // Section 2: Common Services
-  const l2 = document.createElement("div");
-  l2.className = "chip-sec-lbl"; l2.textContent = sched.length>0?"Common Services":"Services";
-  g.appendChild(l2);
-  QS.forEach(s => {
-    if (sched.includes(s)) return; // skip duplicates
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "chip"+(sel[ctx].has(s)?" on":"");
-    b.innerHTML = `<span class="ck">&#10003;</span>${esc(s)}`;
-    b.onclick = () => toggleChip(ctx, s, b);
-    g.appendChild(b);
-  });
 
   updSum(ctx);
 }
@@ -599,7 +586,7 @@ function setChips(ctx, str) {
   document.getElementById(ctx==="log"?"logOther":"editOther").value = "";
   if (!str) { buildChips(ctx); updSum(ctx); return; }
   const lines = str.split("\n").map(s=>s.trim()).filter(Boolean);
-  const allKnown = new Set([...QS,...(schedChips[ctx]||[])]); const other = [];
+  const allKnown = new Set([...(schedChips[ctx]||[])]); const other = [];
   lines.forEach(l => { if (allKnown.has(l)) sel[ctx].add(l); else other.push(l); });
   document.getElementById(ctx==="log"?"logOther":"editOther").value = other.join("\n");
   buildChips(ctx); updSum(ctx);

@@ -406,16 +406,39 @@ body{font-family:var(--font);color:var(--lbl);-webkit-font-smoothing:antialiased
 // ── API ──────────────────────────────────────────────────────
 const API = "https://script.google.com/macros/s/AKfycbwTHZFP3nIsFUk4IgcDC-V-_ci46jgPGRhbbg71vEdPFIg3zwC5RdDIFLIO_NZuJTKE/exec";
 
-async function api(action, params) {
-  const res = await fetch(API, {
-    method: "POST",
-    redirect: "follow",
-    headers: { "Content-Type": "text/plain" },
-    body: JSON.stringify({ action, ...params })
+function api(action, params) {
+  // JSONP — bypasses CORS by injecting a <script> tag
+  return new Promise((resolve, reject) => {
+    const cbName = "_cb_" + Date.now() + "_" + Math.floor(Math.random()*10000);
+    const timeout = setTimeout(() => {
+      delete window[cbName];
+      if (script.parentNode) script.parentNode.removeChild(script);
+      reject(new Error("Request timed out"));
+    }, 15000);
+
+    window[cbName] = function(data) {
+      clearTimeout(timeout);
+      delete window[cbName];
+      if (script.parentNode) script.parentNode.removeChild(script);
+      resolve(data);
+    };
+
+    params = params || {};
+    const data = Object.keys(params).length ? encodeURIComponent(JSON.stringify(params)) : "";
+    const url  = API
+      + "?action=" + encodeURIComponent(action)
+      + (data ? "&data=" + data : "")
+      + "&callback=" + cbName;
+
+    const script = document.createElement("script");
+    script.src = url;
+    script.onerror = () => {
+      clearTimeout(timeout);
+      delete window[cbName];
+      reject(new Error("Script load failed"));
+    };
+    document.head.appendChild(script);
   });
-  const text = await res.text();
-  try { return JSON.parse(text); }
-  catch(e) { return { success: false, error: "Invalid response: " + text.slice(0,100) }; }
 }
 
 // ── Constants ────────────────────────────────────────────────

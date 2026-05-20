@@ -415,14 +415,23 @@ function busy(id,on,lbl){const b=document.getElementById(id);if(!b)return;b.disa
 // ── Init ──────────────────────────────────────────────────────
 window.addEventListener("DOMContentLoaded",()=>{
   setToday("sDate");
+  // Debug: show status in vehicle seg area
+  const dbg = document.getElementById("vSeg");
+  if(dbg) dbg.innerHTML = '<span style="font-size:13px;color:orange;padding:4px">Loading vehicles...</span>';
   api("getVehicles").then(res=>{
-    VEHICLES=res.success?res.vehicles:["2004 Ford F-150","2011 Ford Flex"];
-    buildSeg("vSeg","log"); buildSeg("evSeg","edit");
-    buildPills(); loadSummary(); loadMaintRibbon();
-  }).catch(()=>{
-    VEHICLES=["2004 Ford F-150","2011 Ford Flex"];
-    buildSeg("vSeg","log"); buildSeg("evSeg","edit");
-    buildPills();
+    if(dbg) dbg.innerHTML = '<span style="font-size:11px;color:green;padding:4px">API OK: ' + JSON.stringify(res).slice(0,60) + '</span>';
+    setTimeout(()=>{
+      VEHICLES=res.success?res.vehicles:["2004 Ford F-150","2011 Ford Flex"];
+      buildSeg("vSeg","log"); buildSeg("evSeg","edit");
+      buildPills(); loadSummary(); loadMaintRibbon();
+    }, 1500);
+  }).catch(err=>{
+    if(dbg) dbg.innerHTML = '<span style="font-size:11px;color:red;padding:4px">API ERROR: ' + err.message + '</span>';
+    setTimeout(()=>{
+      VEHICLES=["2004 Ford F-150","2011 Ford Flex"];
+      buildSeg("vSeg","log"); buildSeg("evSeg","edit");
+      buildPills();
+    }, 1500);
   });
 });
 
@@ -430,6 +439,7 @@ function setToday(id){const t=new Date(),p=n=>String(n).padStart(2,"0");document
 
 // ── Navigation ────────────────────────────────────────────────
 function switchTab(t){
+  console.log("switchTab called:", t, "from:", activeTab);
   if(activeTab===t)return;
   const prev=activeTab; activeTab=t;
   // Remove all pushed screens first

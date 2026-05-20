@@ -374,6 +374,10 @@ const API = "https://script.google.com/macros/s/AKfycbwH1n9LeQftD5dNBMkQYNBRWoAo
 function api(action, params) {
   return new Promise((resolve, reject) => {
     const cb = "_cb" + Date.now() + Math.floor(Math.random()*9999);
+    params = params || {};
+    const d = Object.keys(params).length ? "&data=" + encodeURIComponent(JSON.stringify(params)) : "";
+    const s = document.createElement("script");
+    s.src = API + "?action=" + encodeURIComponent(action) + d + "&callback=" + cb;
     const timer = setTimeout(() => {
       delete window[cb];
       if (s.parentNode) s.parentNode.removeChild(s);
@@ -385,10 +389,6 @@ function api(action, params) {
       if (s.parentNode) s.parentNode.removeChild(s);
       resolve(data);
     };
-    params = params || {};
-    const d = Object.keys(params).length ? "&data=" + encodeURIComponent(JSON.stringify(params)) : "";
-    const s = document.createElement("script");
-    s.src = API + "?action=" + encodeURIComponent(action) + d + "&callback=" + cb;
     s.onerror = () => { clearTimeout(timer); delete window[cb]; reject(new Error("Load failed")); };
     document.head.appendChild(s);
   });
@@ -415,23 +415,14 @@ function busy(id,on,lbl){const b=document.getElementById(id);if(!b)return;b.disa
 // ── Init ──────────────────────────────────────────────────────
 window.addEventListener("DOMContentLoaded",()=>{
   setToday("sDate");
-  // Debug: show status in vehicle seg area
-  const dbg = document.getElementById("vSeg");
-  if(dbg) dbg.innerHTML = '<span style="font-size:13px;color:orange;padding:4px">Loading vehicles...</span>';
   api("getVehicles").then(res=>{
-    if(dbg) dbg.innerHTML = '<span style="font-size:11px;color:green;padding:4px">API OK: ' + JSON.stringify(res).slice(0,60) + '</span>';
-    setTimeout(()=>{
-      VEHICLES=res.success?res.vehicles:["2004 Ford F-150","2011 Ford Flex"];
-      buildSeg("vSeg","log"); buildSeg("evSeg","edit");
-      buildPills(); loadSummary(); loadMaintRibbon();
-    }, 1500);
-  }).catch(err=>{
-    if(dbg) dbg.innerHTML = '<span style="font-size:11px;color:red;padding:4px">API ERROR: ' + err.message + '</span>';
-    setTimeout(()=>{
-      VEHICLES=["2004 Ford F-150","2011 Ford Flex"];
-      buildSeg("vSeg","log"); buildSeg("evSeg","edit");
-      buildPills();
-    }, 1500);
+    VEHICLES=res.success?res.vehicles:["2004 Ford F-150","2011 Ford Flex"];
+    buildSeg("vSeg","log"); buildSeg("evSeg","edit");
+    buildPills(); loadSummary(); loadMaintRibbon();
+  }).catch(()=>{
+    VEHICLES=["2004 Ford F-150","2011 Ford Flex"];
+    buildSeg("vSeg","log"); buildSeg("evSeg","edit");
+    buildPills();
   });
 });
 
@@ -439,7 +430,6 @@ function setToday(id){const t=new Date(),p=n=>String(n).padStart(2,"0");document
 
 // ── Navigation ────────────────────────────────────────────────
 function switchTab(t){
-  console.log("switchTab called:", t, "from:", activeTab);
   if(activeTab===t)return;
   const prev=activeTab; activeTab=t;
   // Remove all pushed screens first

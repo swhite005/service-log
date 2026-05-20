@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>API Test</title>
+</head>
+<body>
+<h2>API Test</h2>
+<p id="status">Testing...</p>
+<script>
+const API = "https://script.google.com/macros/s/AKfycbwH1n9LeQftD5dNBMkQYNBRWoAo5EIyjpFhJrlBZbGZO9HWO0ZqRzw_qPFxsDW9CaDQ/exec";
+
+function test() {
+  document.getElementById("status").textContent = "Calling API...";
+  
+  const cb = "_test_" + Date.now();
+  const s = document.createElement("script");
+  s.src = API + "?action=getVehicles&callback=" + cb;
+  
+  window[cb] = function(data) {
+    delete window[cb];
+    document.getElementById("status").innerHTML = 
+      "<span style='color:green'>SUCCESS: " + JSON.stringify(data) + "</span>";
+  };
+  
+  s.onerror = function() {
+    document.getElementById("status").innerHTML = 
+      "<span style='color:red'>SCRIPT ERROR - check URL</span>";
+  };
+  
+  setTimeout(function() {
+    if (window[cb]) {
+      delete window[cb];
+      document.getElementById("status").innerHTML = 
+        "<span style='color:orange'>TIMEOUT after 10s</span>";
+    }
+  }, 10000);
+  
+  document.head.appendChild(s);
+}
+
+test();
+</script>
+</body>
+</html>

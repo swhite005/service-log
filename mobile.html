@@ -26,9 +26,7 @@
 }}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
 html,body{height:100%;background:var(--bg);overflow:hidden;}
-/* Hide Google Apps Script info banner */
-body > div:not(.shell) > div:first-child { display:none !important; }
-body > iframe { display:none !important; }
+
 body{font-family:var(--font);color:var(--lbl);-webkit-font-smoothing:antialiased;}
 .shell{position:fixed;inset:0;display:flex;flex-direction:column;background:var(--bg);}
 .stack{flex:1;position:relative;overflow:hidden;}
@@ -194,59 +192,6 @@ body{font-family:var(--font);color:var(--lbl);-webkit-font-smoothing:antialiased
 </style>
 </head>
 <body>
-<script>
-// Runs immediately — collapses Google Apps Script's injected wrapper divs
-// and forces .shell to fill the real viewport height
-(function fix() {
-  function applyFix() {
-    var h = window.innerHeight;
-    var w = window.innerWidth;
-
-    // Force html and body to real viewport size
-    document.documentElement.style.cssText =
-      'height:' + h + 'px;width:' + w + 'px;overflow:hidden;margin:0;padding:0;';
-    document.body.style.cssText =
-      'height:' + h + 'px;width:' + w + 'px;overflow:hidden;margin:0;padding:0;background:#F2F2F7;';
-
-    // Collapse all Google-injected wrapper divs between body and .shell
-    var children = document.body.children;
-    for (var i = 0; i < children.length; i++) {
-      var el = children[i];
-      if (el.classList && el.classList.contains('shell')) continue;
-      if (el.tagName === 'SCRIPT') continue;
-      el.style.cssText = 'position:absolute;height:' + h + 'px;width:' + w +
-        'px;overflow:hidden;margin:0;padding:0;top:0;left:0;';
-      // Also fix children of Google's wrapper (it nests 2 levels deep)
-      var gc = el.children;
-      for (var j = 0; j < gc.length; j++) {
-        if (gc[j].classList && gc[j].classList.contains('shell')) continue;
-        gc[j].style.cssText = 'height:' + h + 'px;width:' + w +
-          'px;overflow:hidden;margin:0;padding:0;';
-      }
-    }
-
-    // Force .shell to fill viewport
-    var shell = document.querySelector('.shell');
-    if (shell) {
-      shell.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;' +
-        'width:' + w + 'px;height:' + h + 'px;overflow:hidden;z-index:1;' +
-        'display:flex;flex-direction:column;background:var(--bg,#F2F2F7);';
-    }
-  }
-
-  // Run immediately, then again after DOM loads, then poll briefly
-  applyFix();
-  document.addEventListener('DOMContentLoaded', applyFix);
-  window.addEventListener('load', applyFix);
-  window.addEventListener('resize', applyFix);
-  window.addEventListener('orientationchange', function() {
-    setTimeout(applyFix, 100);
-    setTimeout(applyFix, 400);
-  });
-  var polls = 0;
-  var t = setInterval(function() { applyFix(); if (++polls > 15) clearInterval(t); }, 100);
-})();
-</script>
 <div class="shell">
   <div class="stack">
 
@@ -422,6 +367,32 @@ body{font-family:var(--font);color:var(--lbl);-webkit-font-smoothing:antialiased
 <div class="toast" id="toast"></div>
 
 <script>
+// ── API (JSONP — bypasses CORS for GitHub Pages hosting) ──────
+const API = "https://script.google.com/macros/s/AKfycbwH1n9LeQftD5dNBMkQYNBRWoAo5EIyjpFhJrlBZbGZO9HWO0ZqRzw_qPFxsDW9CaDQ/exec";
+
+function api(action, params) {
+  return new Promise((resolve, reject) => {
+    const cb = "_cb" + Date.now() + Math.floor(Math.random()*9999);
+    const timer = setTimeout(() => {
+      delete window[cb];
+      if (s.parentNode) s.parentNode.removeChild(s);
+      reject(new Error("Timeout"));
+    }, 20000);
+    window[cb] = function(data) {
+      clearTimeout(timer);
+      delete window[cb];
+      if (s.parentNode) s.parentNode.removeChild(s);
+      resolve(data);
+    };
+    params = params || {};
+    const d = Object.keys(params).length ? "&data=" + encodeURIComponent(JSON.stringify(params)) : "";
+    const s = document.createElement("script");
+    s.src = API + "?action=" + encodeURIComponent(action) + d + "&callback=" + cb;
+    s.onerror = () => { clearTimeout(timer); delete window[cb]; reject(new Error("Load failed")); };
+    document.head.appendChild(s);
+  });
+}
+
 // ── State ─────────────────────────────────────────────────────
 const PG=15;
 let VEHICLES=[],recs=[],pg=1,vf="",sq="",sqt=null,curRec=null,activeTab="log";
@@ -435,7 +406,7 @@ function vIcon(v){if(!v)return"&#128663;";const l=v.toLowerCase();if(l.includes(
 function vCls(v){if(!v)return"oth";const l=v.toLowerCase();if(l.includes("f-150")||l.includes("f150"))return"f150";if(l.includes("flex"))return"flex";return"oth";}
 function sv(v){return(v||"").replace(/^20\d\d\s+/,"");}
 function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
-function call(fn,...args){return new Promise((res,rej)=>{let r=google.script.run.withSuccessHandler(res).withFailureHandler(rej);args.forEach(a=>{r=r[fn]?r:r});r[fn](...args);});}
+
 let tt;
 function toast(msg,type="ok"){const t=document.getElementById("toast");t.textContent=msg;t.className="toast on "+type;clearTimeout(tt);tt=setTimeout(()=>t.className="toast",3200);}
 function busy(id,on,lbl){const b=document.getElementById(id);if(!b)return;b.disabled=on;b.textContent=lbl;}
@@ -443,16 +414,15 @@ function busy(id,on,lbl){const b=document.getElementById(id);if(!b)return;b.disa
 // ── Init ──────────────────────────────────────────────────────
 window.addEventListener("DOMContentLoaded",()=>{
   setToday("sDate");
-  google.script.run.withSuccessHandler(res=>{
+  api("getVehicles").then(res=>{
     VEHICLES=res.success?res.vehicles:["2004 Ford F-150","2011 Ford Flex"];
     buildSeg("vSeg","log"); buildSeg("evSeg","edit");
     buildPills(); loadSummary(); loadMaintRibbon();
-  }).withFailureHandler(err=>{
+  }).catch(()=>{
     VEHICLES=["2004 Ford F-150","2011 Ford Flex"];
     buildSeg("vSeg","log"); buildSeg("evSeg","edit");
     buildPills();
-    toast("Using default vehicles","warn");
-  }).getVehicles();
+  });
 });
 
 function setToday(id){const t=new Date(),p=n=>String(n).padStart(2,"0");document.getElementById(id).value=`${t.getFullYear()}-${p(t.getMonth()+1)}-${p(t.getDate())}`;}
@@ -508,7 +478,7 @@ function setVf(btn){document.querySelectorAll(".pill").forEach(p=>p.classList.re
 
 // ── Summary ───────────────────────────────────────────────────
 function loadSummary(){
-  google.script.run.withSuccessHandler(res=>{
+  api("getVehicleSummary").then(res=>{
     const w=document.getElementById("sumCards"); w.innerHTML="";
     if(!res.success)return;
     VEHICLES.forEach(v=>{
@@ -517,16 +487,15 @@ function loadSummary(){
       c.innerHTML=`<div class="cv2">${esc(sv(v))}</div><div class="cnum">${s?s.count:0}</div><div class="clab">records</div>${s&&s.lastDate?`<div class="clast">Last: ${s.lastDate}</div>`:""}${s&&s.lastOdo?`<div class="clast">${Number(s.lastOdo).toLocaleString()} mi</div>`:""}`;
       w.appendChild(c);
     });
-  }).getVehicleSummary();
+  }).catch(()=>{});
 }
 
 // ── Chips ─────────────────────────────────────────────────────
 function onVehicleChange(ctx,vehicle){
   if(!vehicle){schedChips[ctx]=[];buildChips(ctx);return;}
-  google.script.run
-    .withSuccessHandler(res=>{schedChips[ctx]=res.success?res.items.map(i=>i.serviceName):[];buildChips(ctx);})
-    .withFailureHandler(()=>{schedChips[ctx]=[];buildChips(ctx);})
-    .getMaintenanceSchedule(vehicle);
+  api("getMaintenanceSchedule",{vehicle})
+    .then(res=>{schedChips[ctx]=res.success?res.items.map(i=>i.serviceName):[];buildChips(ctx);})
+    .catch(()=>{schedChips[ctx]=[];buildChips(ctx);});
 }
 function buildChips(ctx){
   const g=document.getElementById(ctx==="log"?"logChips":"editChips"); if(!g)return;
@@ -601,10 +570,9 @@ async function uploadFiles(ctx,entryId,vehicle,serviceDate,pfId,plId,wrapId){
   for(let i=0;i<files.length;i++){pf.style.width=Math.round((i/files.length)*45)+"%";pl.textContent=`Reading ${i+1}/${files.length}...`;payloads.push(await f2b(files[i]));}
   pf.style.width="65%";pl.textContent="Uploading to Drive...";
   return new Promise(resolve=>{
-    google.script.run
-      .withSuccessHandler(res=>{pf.style.width="100%";setTimeout(()=>wrap.classList.remove("on"),700);resolve(res.success?res.folderUrl:"");})
-      .withFailureHandler(()=>{wrap.classList.remove("on");resolve("");})
-      .savePhotos(entryId,vehicle,serviceDate,payloads);
+    api("savePhotos",{entryId,vehicle,serviceDate,images:payloads})
+      .then(res=>{pf.style.width="100%";setTimeout(()=>wrap.classList.remove("on"),700);resolve(res.success?res.folderUrl:"");})
+      .catch(()=>{wrap.classList.remove("on");resolve("");});
   });
 }
 
@@ -629,15 +597,14 @@ async function submitForm(){
   if(!location){toast("Please enter the service location.","err");return;}
   if(!services){toast("Please select or enter at least one service.","err");return;}
   busy("saveBtn",true,"Saving..."); busy("navSave",true,"Saving...");
-  google.script.run
-    .withSuccessHandler(async saved=>{
+  api("saveServiceRecord",{vehicle,serviceDate,odometer,location,services})
+    .then(async saved=>{
       if(!saved.success){busy("saveBtn",false,"Save Record");busy("navSave",false,"Save");toast("Error: "+saved.error,"err");return;}
       if(staged.log.length>0){busy("saveBtn",true,"Uploading...");await uploadFiles("log",saved.entryId,vehicle,serviceDate,"logPf","logPl","logProg");}
       busy("saveBtn",false,"Save Record");busy("navSave",false,"Save");
       toast("Record saved!","ok"); resetForm(); loadSummary(); recs=[]; _maintCache=null;
     })
-    .withFailureHandler(err=>{busy("saveBtn",false,"Save Record");busy("navSave",false,"Save");toast("Error: "+err.message,"err");})
-    .saveServiceRecord({vehicle,serviceDate,odometer,location,services});
+    .catch(err=>{busy("saveBtn",false,"Save Record");busy("navSave",false,"Save");toast("Error: "+err.message,"err");});
 }
 
 // ── Search ────────────────────────────────────────────────────
@@ -646,10 +613,9 @@ function clrSrch(){document.getElementById("srch").value="";document.getElementB
 function loadRecs(){
   document.getElementById("srchSpin").classList.add("on");
   document.getElementById("recList").innerHTML=""; document.getElementById("pgWrap").innerHTML="";
-  google.script.run
-    .withSuccessHandler(res=>{document.getElementById("srchSpin").classList.remove("on");if(res.success){recs=res.records;renderRecs();}else toast("Search failed: "+res.error,"err");})
-    .withFailureHandler(err=>{document.getElementById("srchSpin").classList.remove("on");toast("Failed: "+err.message,"err");})
-    .getServiceRecords({vehicle:vf,keyword:sq,dateFrom:"",dateTo:""});
+  api("getServiceRecords",{filters:{vehicle:vf,keyword:sq,dateFrom:"",dateTo:""}})
+    .then(res=>{document.getElementById("srchSpin").classList.remove("on");if(res.success){recs=res.records;renderRecs();}else toast("Search failed: "+res.error,"err");})
+    .catch(err=>{document.getElementById("srchSpin").classList.remove("on");toast("Failed: "+err.message,"err");});
 }
 function renderRecs(){
   const list=document.getElementById("recList"),total=recs.length;
@@ -724,10 +690,9 @@ function openEdit(){
   schedChips.edit=[];
   buildChips("edit");
   if(r.vehicle){
-    google.script.run
-      .withSuccessHandler(res=>{schedChips.edit=res.success?res.items.map(i=>i.serviceName):[];setChips("edit",r.services||"");})
-      .withFailureHandler(()=>{schedChips.edit=[];setChips("edit",r.services||"");})
-      .getMaintenanceSchedule(r.vehicle);
+    api("getMaintenanceSchedule",{vehicle:r.vehicle})
+      .then(res=>{schedChips.edit=res.success?res.items.map(i=>i.serviceName):[];setChips("edit",r.services||"");})
+      .catch(()=>{schedChips.edit=[];setChips("edit",r.services||"");});
   } else setChips("edit",r.services||"");
   push("S-edit");
 }
@@ -739,38 +704,35 @@ async function saveEdit(){
   if(!serviceDate){toast("Please enter the service date.","err");return;}
   if(!location){toast("Please enter the service location.","err");return;}
   if(!services){toast("Please select or enter at least one service.","err");return;}
-  google.script.run
-    .withSuccessHandler(async res=>{
+  api("updateServiceRecord",{entryId,vehicle,serviceDate,odometer,location,services})
+    .then(async res=>{
       if(!res.success){toast("Error: "+res.error,"err");return;}
       if(staged.edit.length>0)await uploadFiles("edit",entryId,vehicle,serviceDate,"editPf","editPl","editProg");
       toast("Record updated!","ok");
       curRec={...curRec,vehicle,serviceDate,odometer,location,services};
       recs=[]; pop("S-edit"); openDetail(curRec); loadSummary(); _maintCache=null;
     })
-    .withFailureHandler(err=>toast("Error: "+err.message,"err"))
-    .updateServiceRecord({entryId,vehicle,serviceDate,odometer,location,services});
+    .catch(err=>toast("Error: "+err.message,"err"));
 }
 
 // ── Delete ────────────────────────────────────────────────────
 function confirmDel(){
   if(!curRec)return;
   if(!confirm(`Delete this record?\n${curRec.serviceDate} - ${curRec.location}\n\nThis cannot be undone.`))return;
-  google.script.run
-    .withSuccessHandler(res=>{
+  api("deleteRecord",{entryId:curRec.entryId})
+    .then(res=>{
       if(res.success){toast("Record deleted.","ok");recs=[];pop("S-edit");pop("S-detail");switchTab("search");setTimeout(loadRecs,400);loadSummary();_maintCache=null;}
       else toast("Error: "+res.error,"err");
     })
-    .withFailureHandler(err=>toast("Failed: "+err.message,"err"))
-    .deleteRecord(curRec.entryId);
+    .catch(err=>toast("Failed: "+err.message,"err"));
 }
 
 // ── Maintenance ───────────────────────────────────────────────
 function loadMaintRibbon(){
   if(_maintCache){renderMaintRibbon(_maintCache);return;}
-  google.script.run
-    .withSuccessHandler(res=>{_maintCache=res.success?res.results:null;renderMaintRibbon(_maintCache);})
-    .withFailureHandler(()=>{})
-    .getAllMaintenanceDue();
+  api("getAllMaintenanceDue")
+    .then(res=>{_maintCache=res.success?res.results:null;renderMaintRibbon(_maintCache);})
+    .catch(()=>{});
 }
 function renderMaintRibbon(results){
   const rib=document.getElementById("mrib"); if(!rib||!results){if(rib)rib.style.display="none";return;}
@@ -789,10 +751,9 @@ function loadMaintPage(){
   const el=document.getElementById("maintMob"); if(!el)return;
   if(_maintCache){renderMaintPage(_maintCache);return;}
   el.innerHTML='<div style="text-align:center;padding:40px"><div class="spin" style="margin:0 auto"></div></div>';
-  google.script.run
-    .withSuccessHandler(res=>{_maintCache=res.success?res.results:null;renderMaintPage(_maintCache);})
-    .withFailureHandler(err=>{el.innerHTML=`<div style="text-align:center;padding:40px;color:var(--lbl2)">Failed to load</div>`;})
-    .getAllMaintenanceDue();
+  api("getAllMaintenanceDue")
+    .then(res=>{_maintCache=res.success?res.results:null;renderMaintPage(_maintCache);})
+    .catch(()=>{el.innerHTML='<div style="text-align:center;padding:40px;color:var(--lbl2)">Failed to load</div>';});
 }
 function mDetail(item){
   if (item.status === "unknown") return "No service history found";

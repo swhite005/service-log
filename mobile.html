@@ -614,7 +614,7 @@ function clrSrch(){document.getElementById("srch").value="";document.getElementB
 function loadRecs(){
   document.getElementById("srchSpin").classList.add("on");
   document.getElementById("recList").innerHTML=""; document.getElementById("pgWrap").innerHTML="";
-  api("getServiceRecords",{filters:{vehicle:vf,keyword:sq,dateFrom:"",dateTo:""}})
+  api("getServiceRecords",{vehicle:vf,keyword:sq,dateFrom:"",dateTo:""})
     .then(res=>{document.getElementById("srchSpin").classList.remove("on");if(res.success){recs=res.records;renderRecs();}else toast("Search failed: "+res.error,"err");})
     .catch(err=>{document.getElementById("srchSpin").classList.remove("on");toast("Failed: "+err.message,"err");});
 }

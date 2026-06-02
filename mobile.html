@@ -1,4 +1,3 @@
-<!-- Service Log Mobile v3 - JSONP build -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -129,7 +128,7 @@ body{font-family:var(--font);color:var(--lbl);-webkit-font-smoothing:antialiased
 .rsvcs{font-size:12px;color:var(--lbl3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .pdot{width:8px;height:8px;border-radius:50%;background:var(--ios-green);flex-shrink:0;margin-top:6px;}
 .chev{color:var(--ios-gray3);font-size:20px;flex-shrink:0;}
-.dchip{display:inline-flex;padding:6px 12px;background:var(--navy);border-radius:6px;font-size:14px;color:#ffffff;font-weight:500;margin:3px 4px 3px 0;}
+.dchip{display:inline-flex;padding:4px 10px;background:var(--aclt);border-radius:6px;font-size:14px;color:var(--navy);font-weight:500;margin:3px 4px 3px 0;}
 /* Search */
 .sbar-w{padding:8px 16px;background:var(--cell);border-bottom:.5px solid var(--sep);flex-shrink:0;}
 .sbar{display:flex;align-items:center;gap:8px;background:var(--ios-gray6);border-radius:10px;padding:7px 10px;}
@@ -197,7 +196,7 @@ body{font-family:var(--font);color:var(--lbl);-webkit-font-smoothing:antialiased
   <div class="stack">
 
     <!-- LOG -->
-    <div class="scr on" id="S-log">
+    <div class="scr" id="S-log">
       <div class="nav nav-top">
         <div class="nav-row">
           <div class="nsp"></div>
@@ -249,7 +248,7 @@ body{font-family:var(--font);color:var(--lbl);-webkit-font-smoothing:antialiased
     </div>
 
     <!-- SEARCH -->
-    <div class="scr" id="S-search">
+    <div class="scr on" id="S-search">
       <div class="nav nav-top">
         <div class="nav-row"><div class="nsp"></div><div class="ntitle">Records</div><div class="nsp"></div></div>
       </div>
@@ -357,10 +356,10 @@ body{font-family:var(--font);color:var(--lbl);-webkit-font-smoothing:antialiased
   </div><!-- /stack -->
 
   <div class="tabbar">
-    <button class="tab on" id="tab-log" onclick="switchTab('log')">
+    <button class="tab" id="tab-log" onclick="switchTab('log')">
       <span class="ti">&#9999;&#65039;</span><span class="tl">Log</span>
     </button>
-    <button class="tab" id="tab-search" onclick="switchTab('search')">
+    <button class="tab on" id="tab-search" onclick="switchTab('search')">
       <span class="ti">&#128269;</span><span class="tl">Records</span>
     </button>
   </div>
@@ -374,10 +373,6 @@ const API = "https://script.google.com/macros/s/AKfycbwH1n9LeQftD5dNBMkQYNBRWoAo
 function api(action, params) {
   return new Promise((resolve, reject) => {
     const cb = "_cb" + Date.now() + Math.floor(Math.random()*9999);
-    params = params || {};
-    const d = Object.keys(params).length ? "&data=" + encodeURIComponent(JSON.stringify(params)) : "";
-    const s = document.createElement("script");
-    s.src = API + "?action=" + encodeURIComponent(action) + d + "&callback=" + cb;
     const timer = setTimeout(() => {
       delete window[cb];
       if (s.parentNode) s.parentNode.removeChild(s);
@@ -389,6 +384,10 @@ function api(action, params) {
       if (s.parentNode) s.parentNode.removeChild(s);
       resolve(data);
     };
+    params = params || {};
+    const d = Object.keys(params).length ? "&data=" + encodeURIComponent(JSON.stringify(params)) : "";
+    const s = document.createElement("script");
+    s.src = API + "?action=" + encodeURIComponent(action) + d + "&callback=" + cb;
     s.onerror = () => { clearTimeout(timer); delete window[cb]; reject(new Error("Load failed")); };
     document.head.appendChild(s);
   });
@@ -396,7 +395,7 @@ function api(action, params) {
 
 // ── State ─────────────────────────────────────────────────────
 const PG=15;
-let VEHICLES=[],recs=[],pg=1,vf="",sq="",sqt=null,curRec=null,activeTab="log";
+let VEHICLES=[],recs=[],pg=1,vf="",sq="",sqt=null,curRec=null,activeTab="search";
 const staged={log:[],edit:[]};
 const sel={log:new Set(),edit:new Set()};
 const schedChips={log:[],edit:[]};
@@ -418,11 +417,11 @@ window.addEventListener("DOMContentLoaded",()=>{
   api("getVehicles").then(res=>{
     VEHICLES=res.success?res.vehicles:["2004 Ford F-150","2011 Ford Flex"];
     buildSeg("vSeg","log"); buildSeg("evSeg","edit");
-    buildPills(); loadSummary(); loadMaintRibbon();
+    buildPills(); loadSummary(); loadMaintRibbon(); loadRecs();
   }).catch(()=>{
     VEHICLES=["2004 Ford F-150","2011 Ford Flex"];
     buildSeg("vSeg","log"); buildSeg("evSeg","edit");
-    buildPills();
+    buildPills(); loadRecs();
   });
 });
 
@@ -568,30 +567,13 @@ async function uploadFiles(ctx,entryId,vehicle,serviceDate,pfId,plId,wrapId){
   const wrap=document.getElementById(wrapId),pf=document.getElementById(pfId),pl=document.getElementById(plId);
   wrap.classList.add("on");pf.style.width="0%";
   const payloads=[];
-  for(let i=0;i<files.length;i++){
-    pf.style.width=Math.round((i/files.length)*45)+"%";
-    pl.textContent=`Reading ${i+1}/${files.length}...`;
-    payloads.push(await f2b(files[i]));
-  }
+  for(let i=0;i<files.length;i++){pf.style.width=Math.round((i/files.length)*45)+"%";pl.textContent=`Reading ${i+1}/${files.length}...`;payloads.push(await f2b(files[i]));}
   pf.style.width="65%";pl.textContent="Uploading to Drive...";
-  try {
-    // Use fetch POST for large payloads — JSONP URLs can't handle base64 image data
-    const res = await fetch(API, {
-      method:"POST",
-      redirect:"follow",
-      headers:{"Content-Type":"text/plain"},
-      body:JSON.stringify({action:"savePhotos",entryId,vehicle,serviceDate,images:payloads})
-    });
-    const text = await res.text();
-    let data;
-    try { data = JSON.parse(text); } catch(e) { data = {success:false}; }
-    pf.style.width="100%";
-    setTimeout(()=>wrap.classList.remove("on"),700);
-    return data.success ? data.folderUrl : "";
-  } catch(e) {
-    wrap.classList.remove("on");
-    return "";
-  }
+  return new Promise(resolve=>{
+    api("savePhotos",{entryId,vehicle,serviceDate,images:payloads})
+      .then(res=>{pf.style.width="100%";setTimeout(()=>wrap.classList.remove("on"),700);resolve(res.success?res.folderUrl:"");})
+      .catch(()=>{wrap.classList.remove("on");resolve("");});
+  });
 }
 
 // ── Log Form ──────────────────────────────────────────────────
@@ -631,7 +613,7 @@ function clrSrch(){document.getElementById("srch").value="";document.getElementB
 function loadRecs(){
   document.getElementById("srchSpin").classList.add("on");
   document.getElementById("recList").innerHTML=""; document.getElementById("pgWrap").innerHTML="";
-  api("getServiceRecords",{vehicle:vf,keyword:sq,dateFrom:"",dateTo:""})
+  api("getServiceRecords",{filters:{vehicle:vf,keyword:sq,dateFrom:"",dateTo:""}})
     .then(res=>{document.getElementById("srchSpin").classList.remove("on");if(res.success){recs=res.records;renderRecs();}else toast("Search failed: "+res.error,"err");})
     .catch(err=>{document.getElementById("srchSpin").classList.remove("on");toast("Failed: "+err.message,"err");});
 }
@@ -810,7 +792,6 @@ function mDetail(item){
 
   return lines.join("<br>") || "Due";
 }
-
 function renderMaintPage(results){
   const el=document.getElementById("maintMob"); if(!el)return; el.innerHTML="";
   if(!results){el.innerHTML='<div style="text-align:center;padding:40px;color:var(--lbl2)">No data</div>';return;}

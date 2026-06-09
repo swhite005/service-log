@@ -179,6 +179,22 @@ body{font-family:var(--font);color:var(--lbl);-webkit-font-smoothing:antialiased
 .mdetail{font-size:12px;color:var(--lbl2);text-align:right;flex-shrink:0;max-width:180px;line-height:1.5;}
 .mdetail.overdue{color:#FF3B30;font-weight:700;}
 .mdetail.soon{color:#FF9500;font-weight:700;}
+/* Snooze button + action sheet */
+.snz-btn{flex-shrink:0;align-self:center;background:var(--ios-gray5);border:none;border-radius:8px;padding:6px 9px;font-size:13px;font-weight:600;color:var(--ios-blue);font-family:var(--font);cursor:pointer;-webkit-appearance:none;touch-action:manipulation;}
+.snz-btn:active{opacity:.5;}
+@media(prefers-color-scheme:dark){.snz-btn{background:rgba(118,118,128,.24);color:#8FB4F0;}}
+.sheet-ov{position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.4);display:none;flex-direction:column;justify-content:flex-end;padding:8px;padding-bottom:calc(8px + var(--sab));opacity:0;transition:opacity .25s;}
+.sheet-ov.on{display:flex;opacity:1;}
+.sheet{width:100%;display:flex;flex-direction:column;gap:8px;transform:translateY(24px);transition:transform .32s cubic-bezier(.32,.72,0,1);}
+.sheet-ov.on .sheet{transform:translateY(0);}
+.sheet-grp{background:var(--cell);border-radius:14px;overflow:hidden;}
+.sheet-ttl{padding:14px 16px 12px;text-align:center;font-size:13px;color:var(--lbl2);line-height:1.4;border-bottom:.5px solid var(--sep);}
+.sheet-btn{display:block;width:100%;padding:15px;border:none;background:transparent;font-size:17px;color:var(--ios-blue);font-family:var(--font);cursor:pointer;-webkit-appearance:none;touch-action:manipulation;}
+.sheet-btn+.sheet-btn{border-top:.5px solid var(--sep);}
+.sheet-btn.dz{color:var(--ios-red);}
+.sheet-btn:active{background:var(--ios-gray5);}
+.sheet-cancel{width:100%;padding:16px;border:none;background:var(--cell);border-radius:14px;font-size:17px;font-weight:600;color:var(--ios-blue);font-family:var(--font);cursor:pointer;-webkit-appearance:none;touch-action:manipulation;}
+.sheet-cancel:active{background:var(--ios-gray5);}
 /* Empty / spinner */
 .empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 32px;text-align:center;gap:10px;}
 .ei{font-size:52px;opacity:.3;margin-bottom:4px;}
@@ -389,6 +405,9 @@ body{font-family:var(--font);color:var(--lbl);-webkit-font-smoothing:antialiased
   </div>
 </div>
 <div class="toast" id="toast"></div>
+<div class="sheet-ov" id="snzOv" onclick="closeSheetBg(event)">
+  <div class="sheet" id="snzSheet"></div>
+</div>
 
 <script>
 // ── API (JSONP — bypasses CORS for GitHub Pages hosting) ──────
@@ -414,6 +433,19 @@ function api(action, params) {
     s.src = API + "?action=" + encodeURIComponent(action) + d + "&callback=" + cb;
     s.onerror = () => { clearTimeout(timer); delete window[cb]; reject(new Error("Load failed")); };
     document.head.appendChild(s);
+  });
+}
+
+// POST transport — for payloads too large to ride in a JSONP URL (photo uploads).
+// Sent as text/plain (a "simple" request → no CORS preflight) with mode:"no-cors"
+// so the browser sends it; Apps Script's doPost still runs and saves server-side.
+// The response is opaque (unreadable cross-origin), so this is fire-and-forget.
+function apiPost(action, params) {
+  return fetch(API, {
+    method: "POST",
+    mode: "no-cors",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify(Object.assign({ action: action }, params || {}))
   });
 }
 
@@ -594,12 +626,17 @@ async function uploadFiles(ctx,entryId,vehicle,serviceDate,pfId,plId,wrapId){
   wrap.classList.add("on");pf.style.width="0%";
   const payloads=[];
   for(let i=0;i<files.length;i++){pf.style.width=Math.round((i/files.length)*45)+"%";pl.textContent=`Reading ${i+1}/${files.length}...`;payloads.push(await f2b(files[i]));}
-  pf.style.width="65%";pl.textContent="Uploading to Drive...";
-  return new Promise(resolve=>{
-    api("savePhotos",{entryId,vehicle,serviceDate,images:payloads})
-      .then(res=>{pf.style.width="100%";setTimeout(()=>wrap.classList.remove("on"),700);resolve(res.success?res.folderUrl:"");})
-      .catch(()=>{wrap.classList.remove("on");resolve("");});
-  });
+  pf.style.width="70%";pl.textContent="Uploading to Drive...";
+  // Photos can't ride in a JSONP URL (base64 blows past URL limits), so POST them.
+  try{
+    await apiPost("savePhotos",{entryId,vehicle,serviceDate,images:payloads});
+    pf.style.width="100%";
+    setTimeout(()=>wrap.classList.remove("on"),700);
+    return "ok";
+  }catch(e){
+    wrap.classList.remove("on");
+    return "";
+  }
 }
 
 // ── Log Form ──────────────────────────────────────────────────
@@ -753,33 +790,118 @@ function confirmDel(){
     .catch(err=>toast("Failed: "+err.message,"err"));
 }
 
+// ── Maintenance snooze / disregard (saved on this device) ─────
+// Snooze state lives server-side (code.gs "MaintenanceSnooze" sheet) so it's shared
+// with the desktop app. Held in memory after loading; tiny payloads ride over JSONP.
+let _snoozeMap={};
+function snzKey(vehicle,serviceName){return vehicle+"||"+serviceName;}
+function itemSig(item){return [(item&&item.lastDate)||"",(item&&item.lastOdo)||"",(item&&item.manualLastDate)||""].join("|");}
+function loadSnoozes(cb){
+  api("getSnoozes")
+    .then(res=>{_snoozeMap=(res&&res.success&&res.snoozes)?res.snoozes:{};if(cb)cb();})
+    .catch(()=>{if(cb)cb();});
+}
+function clearSnoozeRemote(vehicle,serviceName){
+  delete _snoozeMap[snzKey(vehicle,serviceName)];
+  api("setMaintSnooze",{vehicle,serviceName,record:null}).catch(()=>{});
+}
+function getSnooze(vehicle,serviceName,item){
+  const k=snzKey(vehicle,serviceName),s=_snoozeMap[k];
+  if(!s)return null;
+  // Auto-clear once the service has actually been done (history changed since snoozing)
+  if(item&&s.sig!==undefined&&s.sig!==""&&s.sig!==itemSig(item)){clearSnoozeRemote(vehicle,serviceName);return null;}
+  // Auto-expire a time-based reminder once its date passes
+  if(s.type==="snooze"&&s.until){
+    const today=new Date();today.setHours(0,0,0,0);
+    const until=new Date(s.until+"T00:00:00");
+    if(until<=today){clearSnoozeRemote(vehicle,serviceName);return null;}
+  }
+  return s;
+}
+function setSnooze(vehicle,serviceName,s,item){
+  const k=snzKey(vehicle,serviceName);
+  if(s===null){delete _snoozeMap[k];api("setMaintSnooze",{vehicle,serviceName,record:null}).catch(()=>{});return;}
+  if(item)s.sig=itemSig(item);
+  _snoozeMap[k]={type:s.type||"",until:s.until||"",sig:s.sig||""};
+  api("setMaintSnooze",{vehicle,serviceName,record:_snoozeMap[k]}).catch(()=>{});
+}
+function addPeriod(kind){
+  const d=new Date();d.setHours(0,0,0,0);
+  if(kind==="1w")d.setDate(d.getDate()+7);
+  else if(kind==="1m")d.setMonth(d.getMonth()+1);
+  else if(kind==="3m")d.setMonth(d.getMonth()+3);
+  else if(kind==="6m")d.setMonth(d.getMonth()+6);
+  const p=n=>String(n).padStart(2,"0");
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
+}
+function fmtDate(ymd){if(!ymd)return"";const d=new Date(ymd+"T00:00:00");return isNaN(d)?ymd:(d.getMonth()+1)+"/"+d.getDate()+"/"+d.getFullYear();}
+
+let _snzTarget=null;
+function openSnoozeSheet(vehicle,item){
+  _snzTarget={vehicle,item};
+  const cur=getSnooze(vehicle,item.serviceName,item);
+  const head=cur?(cur.type==="dismiss"?"Currently disregarded":"Reminding "+fmtDate(cur.until)):"Choose when to be reminded";
+  let html=`<div class="sheet-grp"><div class="sheet-ttl"><b>${esc(item.serviceName)}</b><br>${esc(head)}</div>`;
+  html+=`<button class="sheet-btn" onclick="applySnooze('1w')">Remind in 1 week</button>`;
+  html+=`<button class="sheet-btn" onclick="applySnooze('1m')">Remind in 1 month</button>`;
+  html+=`<button class="sheet-btn" onclick="applySnooze('3m')">Remind in 3 months</button>`;
+  html+=`<button class="sheet-btn" onclick="applySnooze('6m')">Remind in 6 months</button>`;
+  html+=`<button class="sheet-btn dz" onclick="applySnooze('dismiss')">Disregard until service is done</button>`;
+  html+=`</div>`;
+  if(cur)html+=`<button class="sheet-cancel" onclick="applySnooze('clear')">Restore alert now</button>`;
+  html+=`<button class="sheet-cancel" onclick="hideSheet()">Cancel</button>`;
+  document.getElementById("snzSheet").innerHTML=html;
+  document.getElementById("snzOv").classList.add("on");
+}
+function applySnooze(kind){
+  if(!_snzTarget)return;
+  const {vehicle,item}=_snzTarget; let msg="Reminder set";
+  if(kind==="clear"){setSnooze(vehicle,item.serviceName,null);msg="Alert restored";}
+  else if(kind==="dismiss"){setSnooze(vehicle,item.serviceName,{type:"dismiss"},item);msg="Alert disregarded";}
+  else{const u=addPeriod(kind);setSnooze(vehicle,item.serviceName,{type:"snooze",until:u},item);msg="Reminder set for "+fmtDate(u);}
+  hideSheet();
+  if(_maintCache){renderMaintRibbon(_maintCache);renderMaintPage(_maintCache);}
+  toast(msg,"ok");
+}
+function hideSheet(){const o=document.getElementById("snzOv");if(o)o.classList.remove("on");_snzTarget=null;}
+function closeSheetBg(e){if(e.target.id==="snzOv")hideSheet();}
+
 // ── Maintenance ───────────────────────────────────────────────
 function loadMaintRibbon(){
-  if(_maintCache){renderMaintRibbon(_maintCache);return;}
-  api("getAllMaintenanceDue")
-    .then(res=>{_maintCache=res.success?res.results:null;renderMaintRibbon(_maintCache);})
-    .catch(()=>{});
+  loadSnoozes(()=>{
+    if(_maintCache){renderMaintRibbon(_maintCache);return;}
+    api("getAllMaintenanceDue")
+      .then(res=>{_maintCache=res.success?res.results:null;renderMaintRibbon(_maintCache);})
+      .catch(()=>{});
+  });
 }
 function renderMaintRibbon(results){
   const rib=document.getElementById("mrib"); if(!rib||!results){if(rib)rib.style.display="none";return;}
   const vehicles=Object.keys(results);
-  let totalOverdue=0,totalSoon=0;
-  vehicles.forEach(v=>{if(!results[v].items)return;totalOverdue+=results[v].items.filter(i=>i.status==="overdue").length;totalSoon+=results[v].items.filter(i=>i.status==="soon").length;});
+  let totalOverdue=0,totalSoon=0,totalSnoozed=0;
+  vehicles.forEach(v=>{if(!results[v].items)return;results[v].items.forEach(i=>{
+    if(i.status!=="overdue"&&i.status!=="soon")return;
+    if(getSnooze(v,i.serviceName,i)){totalSnoozed++;return;}
+    if(i.status==="overdue")totalOverdue++; else totalSoon++;
+  });});
   const hasSchedule=vehicles.some(v=>results[v].items&&results[v].items.length>0);
   if(!hasSchedule){rib.style.display="none";return;}
   rib.style.display="block";
   const t=document.getElementById("mribT"),s=document.getElementById("mribS");
-  if(totalOverdue>0){t.innerHTML=`<span style="color:#FF6B6B">&#9888;&#65039; ${totalOverdue} service${totalOverdue!==1?"s":""} overdue</span>`;s.textContent=totalSoon>0?`+ ${totalSoon} due soon`:"Tap View for details";}
-  else if(totalSoon>0){t.innerHTML=`<span style="color:#FFD60A">&#128276; ${totalSoon} due soon</span>`;s.textContent="Tap View for details";}
-  else{t.innerHTML=`<span style="color:#32D74B">&#10003; All maintenance up to date</span>`;s.textContent="Tap View for full schedule";}
+  const snzNote=totalSnoozed>0?`${totalSnoozed} snoozed`:"";
+  if(totalOverdue>0){t.innerHTML=`<span style="color:#FF6B6B">&#9888;&#65039; ${totalOverdue} service${totalOverdue!==1?"s":""} overdue</span>`;s.textContent=[totalSoon>0?`+ ${totalSoon} due soon`:"",snzNote].filter(Boolean).join(" · ")||"Tap View for details";}
+  else if(totalSoon>0){t.innerHTML=`<span style="color:#FFD60A">&#128276; ${totalSoon} due soon</span>`;s.textContent=snzNote||"Tap View for details";}
+  else{t.innerHTML=`<span style="color:#32D74B">&#10003; All maintenance up to date</span>`;s.textContent=snzNote?`${snzNote} · tap View to manage`:"Tap View for full schedule";}
 }
 function loadMaintPage(){
   const el=document.getElementById("maintMob"); if(!el)return;
-  if(_maintCache){renderMaintPage(_maintCache);return;}
-  el.innerHTML='<div style="text-align:center;padding:40px"><div class="spin" style="margin:0 auto"></div></div>';
-  api("getAllMaintenanceDue")
-    .then(res=>{_maintCache=res.success?res.results:null;renderMaintPage(_maintCache);})
-    .catch(()=>{el.innerHTML='<div style="text-align:center;padding:40px;color:var(--lbl2)">Failed to load</div>';});
+  loadSnoozes(()=>{
+    if(_maintCache){renderMaintPage(_maintCache);return;}
+    el.innerHTML='<div style="text-align:center;padding:40px"><div class="spin" style="margin:0 auto"></div></div>';
+    api("getAllMaintenanceDue")
+      .then(res=>{_maintCache=res.success?res.results:null;renderMaintPage(_maintCache);})
+      .catch(()=>{el.innerHTML='<div style="text-align:center;padding:40px;color:var(--lbl2)">Failed to load</div>';});
+  });
 }
 function mDetail(item){
   if (item.status === "unknown") return "No service history found";
@@ -826,12 +948,13 @@ function renderMaintPage(results){
   if(!hasAny){el.innerHTML='<div style="text-align:center;padding:40px;color:var(--lbl2)">No maintenance schedules set up yet.</div>';return;}
   vehicles.forEach(vehicle=>{
     const data=results[vehicle]; if(!data.success||!data.items||!data.items.length)return;
+    const isSnoozed=it=>(it.status==="overdue"||it.status==="soon")&&getSnooze(vehicle,it.serviceName,it);
     const vh=document.createElement("div");
     vh.style.cssText="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--lbl2);padding:14px 0 6px";
     vh.textContent=vehicle+(data.currentOdo?` · ${Number(data.currentOdo).toLocaleString()} mi`:"");
     el.appendChild(vh);
     [{key:"overdue",label:"Overdue",color:"#FF3B30"},{key:"soon",label:"Due Soon",color:"#FF9500"},{key:"ok",label:"Up to Date",color:"#34C759"},{key:"unknown",label:"No History",color:"var(--ios-gray3)"}].forEach(g=>{
-      const items=data.items.filter(i=>i.status===g.key); if(!items.length)return;
+      const items=data.items.filter(i=>i.status===g.key&&!isSnoozed(i)); if(!items.length)return;
       const sl=document.createElement("div");
       sl.style.cssText="display:flex;align-items:center;gap:8px;padding:6px 0 4px;font-size:12px;font-weight:700;color:var(--lbl2)";
       sl.innerHTML=`<span>${g.label}</span><span style="background:${g.color};color:#fff;border-radius:8px;padding:1px 8px;font-size:11px">${items.length}</span>`;
@@ -840,17 +963,43 @@ function renderMaintPage(results){
       items.forEach((item,idx)=>{
         const detail=mDetail(item);
         const lastStr=item.lastDate?`Last: ${item.lastDate}${item.lastSource==="manual"?" (manual)":""}${item.lastOdo?" · "+Number(item.lastOdo).toLocaleString()+" mi":""}`:item.manualLastDate?`Last: ${item.manualLastDate} (manual)`:"";
+        const canSnooze=(g.key==="overdue"||g.key==="soon");
         const row=document.createElement("div"); row.className="cell"; if(idx>0)row.style.borderTop=".5px solid var(--sep)"; row.style.gap="10px";
         row.innerHTML=`<div class="mdot ${item.status}" style="flex-shrink:0"></div>
           <div style="flex:1;min-width:0">
             <div style="font-size:14px;font-weight:600;color:var(--lbl)">${esc(item.serviceName)}</div>
             ${lastStr?`<div style="font-size:11px;color:var(--lbl2);margin-top:2px">${esc(lastStr)}</div>`:""}
           </div>
-          <div class="mdetail ${item.status}" style="font-size:12px;font-weight:${item.status==="overdue"||item.status==="soon"?"700":"400"};text-align:right;flex-shrink:0">${detail}</div>`;
+          <div class="mdetail ${item.status}" style="font-size:12px;font-weight:${item.status==="overdue"||item.status==="soon"?"700":"400"};text-align:right;flex-shrink:0">${detail}</div>
+          ${canSnooze?`<button class="snz-btn" type="button">&#9200;</button>`:""}`;
+        if(canSnooze){row.querySelector(".snz-btn").onclick=e=>{e.stopPropagation();openSnoozeSheet(vehicle,item);};}
         card.appendChild(row);
       });
       el.appendChild(card);
     });
+    // Snoozed / disregarded group
+    const snz=data.items.filter(i=>isSnoozed(i));
+    if(snz.length){
+      const sl=document.createElement("div");
+      sl.style.cssText="display:flex;align-items:center;gap:8px;padding:6px 0 4px;font-size:12px;font-weight:700;color:var(--lbl2)";
+      sl.innerHTML=`<span>Snoozed</span><span style="background:var(--ios-gray);color:#fff;border-radius:8px;padding:1px 8px;font-size:11px">${snz.length}</span>`;
+      el.appendChild(sl);
+      const card=document.createElement("div"); card.className="grp"; card.style.marginBottom="10px";
+      snz.forEach((item,idx)=>{
+        const s=getSnooze(vehicle,item.serviceName,item);
+        const note=s.type==="dismiss"?"Disregarded until service is done":`Reminder set for ${fmtDate(s.until)}`;
+        const row=document.createElement("div"); row.className="cell"; if(idx>0)row.style.borderTop=".5px solid var(--sep)"; row.style.gap="10px";
+        row.innerHTML=`<div class="mdot unknown" style="flex-shrink:0;opacity:.6"></div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:14px;font-weight:600;color:var(--lbl2)">${esc(item.serviceName)}</div>
+            <div style="font-size:11px;color:var(--lbl3);margin-top:2px">${esc(note)}</div>
+          </div>
+          <button class="snz-btn" type="button">Manage</button>`;
+        row.querySelector(".snz-btn").onclick=e=>{e.stopPropagation();openSnoozeSheet(vehicle,item);};
+        card.appendChild(row);
+      });
+      el.appendChild(card);
+    }
   });
 }
 </script>
